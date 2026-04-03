@@ -14,6 +14,7 @@ interface Settings {
   drawHand: boolean
   max1080p: boolean
   drawColor: boolean
+  normalizeBg: boolean
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -26,6 +27,7 @@ const DEFAULT_SETTINGS: Settings = {
   drawHand: true,
   max1080p: true,
   drawColor: false,
+  normalizeBg: false,
 }
 
 export default function Home() {
@@ -73,6 +75,7 @@ export default function Home() {
     form.append('draw_hand', String(settings.drawHand))
     form.append('max_1080p', String(settings.max1080p))
     form.append('draw_color', String(settings.drawColor))
+    form.append('normalize_bg', String(settings.normalizeBg))
 
     try {
       const resp = await fetch('/api/generate', { method: 'POST', body: form })
@@ -167,6 +170,11 @@ export default function Home() {
                   <input type="checkbox" checked={settings.drawColor}
                     onChange={e => setSetting('drawColor', e.target.checked)} />
                   <span>Draw with colour</span>
+                </label>
+                <label className="toggle">
+                  <input type="checkbox" checked={settings.normalizeBg}
+                    onChange={e => setSetting('normalizeBg', e.target.checked)} />
+                  <span>Normalise background to white</span>
                 </label>
                 <label className="toggle">
                   <input type="checkbox" checked={settings.endColor}

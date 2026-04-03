@@ -81,6 +81,7 @@ class SketchVariables:
         self.end_gray_img_duration_in_sec = end_gray_img_duration_in_sec
         self.draw_hand = draw_hand
         self.draw_color = False
+        self.normalize_bg = False
         # populated at runtime
         self.img = None
         self.img_gray = None
@@ -103,6 +104,13 @@ class SketchVariables:
 def preprocess_image(img: np.ndarray, variables: SketchVariables) -> SketchVariables:
     variables.img_ht, variables.img_wd = img.shape[0], img.shape[1]
     img = cv2.resize(img, (variables.resize_wd, variables.resize_ht))
+
+    # Snap near-white (off-white / antique-white) pixels to pure white
+    if variables.normalize_bg:
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        near_white = (hsv[:, :, 1] < 30) & (hsv[:, :, 2] > 200)
+        img[near_white] = [255, 255, 255]
+
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(3, 3))
     clahe.apply(img_gray)
@@ -285,6 +293,7 @@ def generate_sketch_video(
     draw_hand: bool = True,
     max_1080p: bool = True,
     draw_color: bool = False,
+    normalize_bg: bool = False,
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bytes:
     """
@@ -324,6 +333,7 @@ def generate_sketch_video(
         draw_hand=draw_hand,
     )
     variables.draw_color = draw_color
+    variables.normalize_bg = normalize_bg
 
     variables = preprocess_image(img_bgr, variables)
     variables = preprocess_hand_image(variables)
