@@ -28,7 +28,7 @@ trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" EXIT INT TERM
 
 echo ""
 echo "Backend:  http://localhost:8000"
-echo "Frontend: http://localhost:5173"
+echo "Frontend: http://localhost:3000"
 echo ""
 echo "Press Ctrl+C to stop both servers."
 wait
