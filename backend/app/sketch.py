@@ -80,6 +80,7 @@ class SketchVariables:
         self.bg_object_skip_rate = bg_object_skip_rate
         self.end_gray_img_duration_in_sec = end_gray_img_duration_in_sec
         self.draw_hand = draw_hand
+        self.draw_color = False
         # populated at runtime
         self.img = None
         self.img_gray = None
@@ -176,6 +177,11 @@ def draw_masked_object(
     grid = np.array(np.split(img_thresh_copy, n_h, axis=-1))
     grid = np.array(np.split(grid, n_v, axis=-2))
 
+    # Color grid: split the BGR image the same way for draw_color mode
+    if variables.draw_color:
+        color_grid = np.array(np.split(variables.img, n_h, axis=1))
+        color_grid = np.array(np.split(color_grid, n_v, axis=1))
+
     has_black = (grid < black_pixel_threshold).sum(axis=(-1, -2)) > 0
     cut_black_indices = np.array(np.where(has_black)).T
 
@@ -196,7 +202,10 @@ def draw_masked_object(
         rh_e = rh_s + variables.split_len
 
         tile = grid[sel[0]][sel[1]]
-        temp = np.stack([tile, tile, tile], axis=-1)
+        if variables.draw_color:
+            temp = color_grid[sel[0]][sel[1]]
+        else:
+            temp = np.stack([tile, tile, tile], axis=-1)
         variables.drawn_frame[rv_s:rv_e, rh_s:rh_e] = temp
 
         if variables.draw_hand:
@@ -275,6 +284,7 @@ def generate_sketch_video(
     end_color: bool = True,
     draw_hand: bool = True,
     max_1080p: bool = True,
+    draw_color: bool = False,
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bytes:
     """
@@ -313,6 +323,7 @@ def generate_sketch_video(
         end_gray_img_duration_in_sec=main_img_duration,
         draw_hand=draw_hand,
     )
+    variables.draw_color = draw_color
 
     variables = preprocess_image(img_bgr, variables)
     variables = preprocess_hand_image(variables)

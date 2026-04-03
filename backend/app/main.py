@@ -35,6 +35,7 @@ async def generate(
     end_color: bool = Form(True),
     draw_hand: bool = Form(True),
     max_1080p: bool = Form(True),
+    draw_color: bool = Form(False),
 ):
     """Accept an image upload and return a sketch animation video."""
     if not image.content_type or not image.content_type.startswith("image/"):
@@ -59,6 +60,7 @@ async def generate(
                 end_color=end_color,
                 draw_hand=draw_hand,
                 max_1080p=max_1080p,
+                draw_color=draw_color,
             ),
         )
     except Exception as exc:
