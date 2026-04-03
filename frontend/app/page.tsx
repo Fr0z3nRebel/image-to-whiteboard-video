@@ -7,58 +7,111 @@ import type { SketchSettings } from './sketch/processor'
 
 type Status = 'idle' | 'generating' | 'encoding' | 'done' | 'error'
 
+interface ClipItem {
+  id: string
+  file: File
+  previewUrl: string
+}
+
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
+  const [clips, setClips] = useState<ClipItem[]>([])
+  const [activeIndex, setActiveIndex] = useState(0)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [progress, setProgress] = useState(0)
+  const [currentClipIdx, setCurrentClipIdx] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<SketchSettings>(DEFAULT_SETTINGS)
   const dropRef = useRef<HTMLDivElement>(null)
+  const dragIndex = useRef<number | null>(null)
 
-  function handleFile(f: File) {
-    setFile(f)
+  function addFiles(files: FileList | File[]) {
+    const newClips: ClipItem[] = []
+    for (const f of Array.from(files)) {
+      if (f.type.startsWith('image/')) {
+        newClips.push({ id: crypto.randomUUID(), file: f, previewUrl: URL.createObjectURL(f) })
+      }
+    }
+    if (newClips.length === 0) return
+    setClips(prev => {
+      const next = [...prev, ...newClips]
+      setActiveIndex(next.length - 1)
+      return next
+    })
     setVideoUrl(null)
     setError(null)
     setStatus('idle')
-    setPreview(URL.createObjectURL(f))
+  }
+
+  function removeClip(idx: number) {
+    setClips(prev => {
+      const next = prev.filter((_, i) => i !== idx)
+      setActiveIndex(i => Math.min(i, Math.max(0, next.length - 1)))
+      return next
+    })
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (f) handleFile(f)
+    if (e.target.files?.length) addFiles(e.target.files)
+    e.target.value = ''
   }
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault()
-    const f = e.dataTransfer.files?.[0]
-    if (f && f.type.startsWith('image/')) handleFile(f)
+    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files)
+  }
+
+  function onDragStart(idx: number) {
+    dragIndex.current = idx
+  }
+
+  function onDragOver(idx: number, e: React.DragEvent) {
+    e.preventDefault()
+    if (dragIndex.current === null || dragIndex.current === idx) return
+    const from = dragIndex.current
+    dragIndex.current = idx
+    setClips(prev => {
+      const next = [...prev]
+      const [item] = next.splice(from, 1)
+      next.splice(idx, 0, item)
+      return next
+    })
+    setActiveIndex(idx)
+  }
+
+  function onDragEnd() {
+    dragIndex.current = null
   }
 
   async function generate() {
-    if (!file) return
+    if (clips.length === 0) return
     setStatus('generating')
     setProgress(0)
+    setCurrentClipIdx(0)
     setError(null)
     setVideoUrl(null)
 
     try {
-      const frames: ImageData[] = []
+      const allFrames: ImageData[] = []
       let imgW = 0, imgH = 0
 
-      await generateSketchFrames(file, settings, {
-        onFrame: (frame) => {
-          if (frames.length === 0) { imgW = frame.width; imgH = frame.height }
-          frames.push(frame)
-        },
-        onProgress: (pct) => setProgress(pct),
-      })
+      for (let i = 0; i < clips.length; i++) {
+        setCurrentClipIdx(i)
+        await generateSketchFrames(clips[i].file, settings, {
+          onFrame: (frame) => {
+            if (allFrames.length === 0) { imgW = frame.width; imgH = frame.height }
+            allFrames.push(frame)
+          },
+          onProgress: (pct) => {
+            setProgress(Math.round((i / clips.length) * 100 + pct / clips.length))
+          },
+        })
+      }
 
       setStatus('encoding')
       setProgress(0)
 
-      const blob = await encodeFramesToMp4(frames, settings.frameRate, imgW, imgH,
+      const blob = await encodeFramesToMp4(allFrames, settings.frameRate, imgW, imgH,
         (pct) => setProgress(pct))
 
       setVideoUrl(URL.createObjectURL(blob))
@@ -73,32 +126,41 @@ export default function Home() {
     setSettings(s => ({ ...s, [key]: value }))
   }
 
+  const activeClip = clips[activeIndex]
+  const isProcessing = status === 'generating' || status === 'encoding'
+
+  const generateLabel = (() => {
+    if (status === 'generating') {
+      return clips.length > 1
+        ? `⏳ Scene ${currentClipIdx + 1}/${clips.length} · ${progress}%`
+        : `⏳ Drawing… ${progress}%`
+    }
+    if (status === 'encoding') return `⏳ Encoding… ${progress}%`
+    if (clips.length > 1) return `▶ Generate ${clips.length} Scenes`
+    return '▶ Generate Animation'
+  })()
+
   return (
     <>
       <header className="site-header">
         <div className="site-header-inner">
-        <div className="site-logo">
-          <span className="logo-mark">RSG</span>
-          <div>
-            <div className="logo-title">Ready Sketch Go</div>
-            <div className="logo-sub">by Lefty Studios</div>
+          <div className="site-logo">
+            <span className="logo-mark">RSG</span>
+            <div>
+              <div className="logo-title">Ready Sketch Go</div>
+              <div className="logo-sub">by Lefty Studios</div>
+            </div>
           </div>
-        </div>
-        <a
-          href="https://buymeacoffee.com/john.adams"
-          target="_blank"
-          rel="noreferrer"
-          className="btn-bmac"
-        >
-          ☕ Buy Me a Coffee
-        </a>
+          <a href="https://buymeacoffee.com/john.adams" target="_blank" rel="noreferrer" className="btn-bmac">
+            ☕ Buy Me a Coffee
+          </a>
         </div>
       </header>
 
       <main className="main">
         <div className="page-title">
           <h1>Sketch Animation</h1>
-          <p>Generate a whiteboard-style drawing animation from any image</p>
+          <p>Upload images, arrange their order, and generate a seamless animated story</p>
         </div>
 
         <div className="tool-card">
@@ -110,29 +172,25 @@ export default function Home() {
               <label className="field">
                 <span>Split length</span>
                 <small>Grid size — smaller = finer detail, slower</small>
-                <input type="number" min={5} max={40} step={5}
-                  value={settings.splitLen}
+                <input type="number" min={5} max={40} step={5} value={settings.splitLen}
                   onChange={e => setSetting('splitLen', Number(e.target.value))} />
               </label>
               <label className="field">
                 <span>Frame rate</span>
                 <small>Output video FPS</small>
-                <input type="number" min={10} max={60} step={5}
-                  value={settings.frameRate}
+                <input type="number" min={10} max={60} step={5} value={settings.frameRate}
                   onChange={e => setSetting('frameRate', Number(e.target.value))} />
               </label>
               <label className="field">
                 <span>Object skip rate</span>
                 <small>Frames skipped per drawn stroke</small>
-                <input type="number" min={1} max={20}
-                  value={settings.objectSkipRate}
+                <input type="number" min={1} max={20} value={settings.objectSkipRate}
                   onChange={e => setSetting('objectSkipRate', Number(e.target.value))} />
               </label>
               <label className="field">
                 <span>End image duration (s)</span>
                 <small>How long the final image is shown</small>
-                <input type="number" min={1} max={10}
-                  value={settings.mainImgDuration}
+                <input type="number" min={1} max={10} value={settings.mainImgDuration}
                   onChange={e => setSetting('mainImgDuration', Number(e.target.value))} />
               </label>
 
@@ -168,15 +226,13 @@ export default function Home() {
             <button
               className="btn-primary btn-generate"
               onClick={generate}
-              disabled={!file || status === 'generating' || status === 'encoding'}
+              disabled={clips.length === 0 || isProcessing}
             >
-              {status === 'generating' ? `⏳ Drawing… ${progress}%`
-                : status === 'encoding' ? `⏳ Encoding… ${progress}%`
-                : '▶ Generate Animation'}
+              {generateLabel}
             </button>
           </div>
 
-          {/* RIGHT: drop zone / preview / video */}
+          {/* RIGHT: drop zone / active preview / video */}
           <div className="tool-right">
             {videoUrl ? (
               <div className="result-area">
@@ -188,27 +244,28 @@ export default function Home() {
             ) : (
               <div
                 ref={dropRef}
-                className={`drop-zone${file ? ' has-file' : ''}`}
+                className={`drop-zone${clips.length > 0 ? ' has-file' : ''}`}
                 onDragOver={e => e.preventDefault()}
                 onDrop={onDrop}
                 onClick={() => document.getElementById('file-input')?.click()}
               >
-                {preview ? (
-                  <img src={preview} alt="Selected" className="preview-img" />
+                {activeClip ? (
+                  <img src={activeClip.previewUrl} alt={`Scene ${activeIndex + 1}`} className="preview-img" />
                 ) : (
                   <>
                     <svg className="drop-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <path d="M12 16V4m0 0L8 8m4-4 4 4" strokeLinecap="round" strokeLinejoin="round"/>
                       <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round"/>
                     </svg>
-                    <span>Drop an image or click to select</span>
-                    <span className="drop-hint">JPG · PNG · WEBP</span>
+                    <span>Drop images or click to select</span>
+                    <span className="drop-hint">JPG · PNG · WEBP · multiple supported</span>
                   </>
                 )}
                 <input
                   id="file-input"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
+                  multiple
                   style={{ display: 'none' }}
                   onChange={onFileChange}
                 />
@@ -218,6 +275,40 @@ export default function Home() {
             {status === 'error' && (
               <div className="error-box">❌ {error}</div>
             )}
+          </div>
+        </div>
+
+        {/* TIMELINE */}
+        <div className="timeline">
+          <div className="timeline-track">
+            {clips.map((clip, idx) => (
+              <div
+                key={clip.id}
+                className={[
+                  'timeline-item',
+                  idx === activeIndex ? 'active' : '',
+                  isProcessing && idx === currentClipIdx ? 'processing' : '',
+                ].filter(Boolean).join(' ')}
+                draggable
+                onDragStart={() => onDragStart(idx)}
+                onDragOver={(e) => onDragOver(idx, e)}
+                onDragEnd={onDragEnd}
+                onClick={() => setActiveIndex(idx)}
+              >
+                <span className="timeline-num">{idx + 1}</span>
+                <img src={clip.previewUrl} alt={`Scene ${idx + 1}`} className="timeline-thumb" />
+                <button
+                  className="timeline-remove"
+                  onClick={e => { e.stopPropagation(); removeClip(idx) }}
+                  aria-label="Remove scene"
+                >×</button>
+              </div>
+            ))}
+            <button
+              className="timeline-add"
+              onClick={() => document.getElementById('file-input')?.click()}
+              title="Add more images"
+            >+</button>
           </div>
         </div>
       </main>
