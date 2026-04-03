@@ -1,42 +1,20 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { generateSketchFrames, DEFAULT_SETTINGS } from './sketch/processor'
+import { encodeFramesToMp4 } from './sketch/encoder'
+import type { SketchSettings } from './sketch/processor'
 
-type Status = 'idle' | 'generating' | 'done' | 'error'
-
-interface Settings {
-  splitLen: number
-  frameRate: number
-  objectSkipRate: number
-  bgSkipRate: number
-  mainImgDuration: number
-  endColor: boolean
-  drawHand: boolean
-  max1080p: boolean
-  drawColor: boolean
-  normalizeBg: boolean
-}
-
-const DEFAULT_SETTINGS: Settings = {
-  splitLen: 10,
-  frameRate: 25,
-  objectSkipRate: 8,
-  bgSkipRate: 14,
-  mainImgDuration: 2,
-  endColor: true,
-  drawHand: true,
-  max1080p: true,
-  drawColor: false,
-  normalizeBg: false,
-}
+type Status = 'idle' | 'generating' | 'encoding' | 'done' | 'error'
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>('idle')
+  const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState<SketchSettings>(DEFAULT_SETTINGS)
   const dropRef = useRef<HTMLDivElement>(null)
 
   function handleFile(f: File) {
@@ -61,29 +39,28 @@ export default function Home() {
   async function generate() {
     if (!file) return
     setStatus('generating')
+    setProgress(0)
     setError(null)
     setVideoUrl(null)
 
-    const form = new FormData()
-    form.append('image', file)
-    form.append('split_len', String(settings.splitLen))
-    form.append('frame_rate', String(settings.frameRate))
-    form.append('object_skip_rate', String(settings.objectSkipRate))
-    form.append('bg_object_skip_rate', String(settings.bgSkipRate))
-    form.append('main_img_duration', String(settings.mainImgDuration))
-    form.append('end_color', String(settings.endColor))
-    form.append('draw_hand', String(settings.drawHand))
-    form.append('max_1080p', String(settings.max1080p))
-    form.append('draw_color', String(settings.drawColor))
-    form.append('normalize_bg', String(settings.normalizeBg))
-
     try {
-      const resp = await fetch('/api/generate', { method: 'POST', body: form })
-      if (!resp.ok) {
-        const msg = await resp.text()
-        throw new Error(msg || `Server error ${resp.status}`)
-      }
-      const blob = await resp.blob()
+      const frames: ImageData[] = []
+      let imgW = 0, imgH = 0
+
+      await generateSketchFrames(file, settings, {
+        onFrame: (frame) => {
+          if (frames.length === 0) { imgW = frame.width; imgH = frame.height }
+          frames.push(frame)
+        },
+        onProgress: (pct) => setProgress(pct),
+      })
+
+      setStatus('encoding')
+      setProgress(0)
+
+      const blob = await encodeFramesToMp4(frames, settings.frameRate, imgW, imgH,
+        (pct) => setProgress(pct))
+
       setVideoUrl(URL.createObjectURL(blob))
       setStatus('done')
     } catch (e: unknown) {
@@ -92,7 +69,7 @@ export default function Home() {
     }
   }
 
-  function setSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
+  function setSetting<K extends keyof SketchSettings>(key: K, value: SketchSettings[K]) {
     setSettings(s => ({ ...s, [key]: value }))
   }
 
@@ -152,12 +129,6 @@ export default function Home() {
                   onChange={e => setSetting('objectSkipRate', Number(e.target.value))} />
               </label>
               <label className="field">
-                <span>Background skip rate</span>
-                <input type="number" min={1} max={30}
-                  value={settings.bgSkipRate}
-                  onChange={e => setSetting('bgSkipRate', Number(e.target.value))} />
-              </label>
-              <label className="field">
                 <span>End image duration (s)</span>
                 <small>How long the final image is shown</small>
                 <input type="number" min={1} max={10}
@@ -197,9 +168,11 @@ export default function Home() {
             <button
               className="btn-primary btn-generate"
               onClick={generate}
-              disabled={!file || status === 'generating'}
+              disabled={!file || status === 'generating' || status === 'encoding'}
             >
-              {status === 'generating' ? '⏳ Generating…' : '▶ Generate Animation'}
+              {status === 'generating' ? `⏳ Drawing… ${progress}%`
+                : status === 'encoding' ? `⏳ Encoding… ${progress}%`
+                : '▶ Generate Animation'}
             </button>
           </div>
 
