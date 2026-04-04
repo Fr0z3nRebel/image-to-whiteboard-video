@@ -295,6 +295,38 @@ export default function Home() {
                   <span>Cap at 1080p</span>
                 </label>
               </div>
+
+              {settings.drawHand && (
+                <div className="hand-options-section">
+                  <div className="field">
+                    <span>Hand tone</span>
+                    <div className="hand-tone-picker">
+                      {(['light', 'mid', 'dark'] as const).map(tone => (
+                        <button
+                          key={tone}
+                          className={`hand-tone-opt${settings.handTone === tone ? ' selected' : ''}`}
+                          onClick={() => setSetting('handTone', tone)}
+                          title={`${tone} tone`}
+                        >
+                          <img src={`/${tone}-tone-hand-marker.png`} alt={`${tone} tone`} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <span>Hand size <span className="field-value">{settings.handScale.toFixed(1)}×</span></span>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={3}
+                      step={0.1}
+                      value={settings.handScale}
+                      className="hand-size-slider"
+                      onChange={e => setSetting('handScale', Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <button

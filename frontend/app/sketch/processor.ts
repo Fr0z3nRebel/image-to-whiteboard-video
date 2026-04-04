@@ -10,6 +10,8 @@ export interface SketchSettings {
   mainImgDuration: number
   endColor: boolean
   drawHand: boolean
+  handTone: 'light' | 'mid' | 'dark'
+  handScale: number
   max1080p: boolean
   drawColor: boolean
   normalizeBg: boolean
@@ -22,6 +24,8 @@ export const DEFAULT_SETTINGS: SketchSettings = {
   mainImgDuration: 2,
   endColor: true,
   drawHand: true,
+  handTone: 'mid',
+  handScale: 1.0,
   max1080p: true,
   drawColor: false,
   normalizeBg: false,
@@ -203,21 +207,29 @@ export async function generateSketchFrames(
   let handData: ImageData | null = null
   let handMaskData: ImageData | null = null
   if (settings.drawHand) {
-    // Load at original size, we'll scale down
-    const tmpHand = await loadImageData('/drawing-hand.png', 200, 200)
-    const tmpMask = await loadImageData('/hand-mask.png', 200, 200)
-    // Find bounding box from mask (non-transparent)
-    let minX = 200, minY = 200, maxX = 0, maxY = 0
+    const toneMap: Record<string, string> = {
+      light: '/light-tone-hand-marker.png',
+      mid: '/mid-tone-hand-marker.png',
+      dark: '/dark-tone-hand-marker.png',
+    }
+    const handUrl = toneMap[settings.handTone] ?? '/mid-tone-hand-marker.png'
+    const maskUrl = '/hand-marker-mask.png'
+
+    // Sample mask at reference size to compute the hand bounding box
+    const refSize = 200
+    const tmpMask = await loadImageData(maskUrl, refSize, refSize)
+    let minX = refSize, minY = refSize, maxX = 0, maxY = 0
     const md = tmpMask.data
-    for (let y = 0; y < 200; y++) for (let x = 0; x < 200; x++) {
-      if (md[(y * 200 + x) * 4] === 255) {
+    for (let y = 0; y < refSize; y++) for (let x = 0; x < refSize; x++) {
+      if (md[(y * refSize + x) * 4] > 128) {
         if (x < minX) minX = x; if (x > maxX) maxX = x
         if (y < minY) minY = y; if (y > maxY) maxY = y
       }
     }
-    const hw = maxX - minX, hh = maxY - minY
-    handData = await loadImageData('/drawing-hand.png', hw, hh)
-    handMaskData = await loadImageData('/hand-mask.png', hw, hh)
+    const hw = Math.max(1, Math.round((maxX - minX) * settings.handScale))
+    const hh = Math.max(1, Math.round((maxY - minY) * settings.handScale))
+    handData = await loadImageData(handUrl, hw, hh)
+    handMaskData = await loadImageData(maskUrl, hw, hh)
   }
 
   // --- Build tile grid ---
