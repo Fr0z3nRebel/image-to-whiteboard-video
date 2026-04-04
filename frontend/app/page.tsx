@@ -285,14 +285,14 @@ export default function Home() {
                   <span>End with colour image</span>
                 </label>
                 <label className="toggle">
-                  <input type="checkbox" checked={settings.drawHand}
-                    onChange={e => setSetting('drawHand', e.target.checked)} />
-                  <span>Show drawing hand</span>
-                </label>
-                <label className="toggle">
                   <input type="checkbox" checked={settings.max1080p}
                     onChange={e => setSetting('max1080p', e.target.checked)} />
                   <span>Cap at 1080p</span>
+                </label>
+                <label className="toggle">
+                  <input type="checkbox" checked={settings.drawHand}
+                    onChange={e => setSetting('drawHand', e.target.checked)} />
+                  <span>Show drawing hand</span>
                 </label>
               </div>
 

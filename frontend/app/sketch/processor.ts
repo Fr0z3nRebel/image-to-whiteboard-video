@@ -19,16 +19,16 @@ export interface SketchSettings {
 
 export const DEFAULT_SETTINGS: SketchSettings = {
   splitLen: 10,
-  frameRate: 25,
-  objectSkipRate: 8,
+  frameRate: 30,
+  objectSkipRate: 16,
   mainImgDuration: 2,
   endColor: true,
   drawHand: true,
   handTone: 'mid',
   handScale: 1.0,
   max1080p: true,
-  drawColor: false,
-  normalizeBg: false,
+  drawColor: true,
+  normalizeBg: true,
 }
 
 // Standard resolutions the backend snaps to
