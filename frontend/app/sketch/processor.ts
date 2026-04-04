@@ -15,6 +15,8 @@ export interface SketchSettings {
   max1080p: boolean
   drawColor: boolean
   normalizeBg: boolean
+  /** When set, objectSkipRate is ignored and computed from actual tile count to hit this duration. */
+  targetDurationSec?: number
 }
 
 export const DEFAULT_SETTINGS: SketchSettings = {
@@ -29,6 +31,18 @@ export const DEFAULT_SETTINGS: SketchSettings = {
   max1080p: true,
   drawColor: true,
   normalizeBg: true,
+}
+
+/**
+ * Return settings for simple mode. The processor will compute objectSkipRate
+ * at runtime from the actual tile count so the clip hits targetDurationSec.
+ */
+export function settingsFromDuration(
+  durationSec: number,
+): Pick<SketchSettings, 'splitLen' | 'frameRate' | 'objectSkipRate' | 'mainImgDuration' | 'targetDurationSec'> {
+  const frameRate = 30
+  const mainImgDuration = Math.max(1, Math.min(Math.round(durationSec * 0.15), 5))
+  return { frameRate, mainImgDuration, splitLen: 10, objectSkipRate: 16, targetDurationSec: durationSec }
 }
 
 // Standard resolutions the backend snaps to
@@ -258,6 +272,15 @@ export async function generateSketchFrames(
   let nTiles = darkTiles.length / 2
   const pts = new Int32Array(darkTiles) // [r0,c0,r1,c1,...]
 
+  // In simple mode, derive objectSkipRate from actual tile count so the clip
+  // hits the requested duration regardless of image size or content density.
+  let effectiveSkipRate = settings.objectSkipRate
+  if (settings.targetDurationSec !== undefined) {
+    const drawingDuration = Math.max(0.5, settings.targetDurationSec - settings.mainImgDuration)
+    const drawingFrames = Math.max(1, Math.round(drawingDuration * settings.frameRate))
+    effectiveSkipRate = Math.max(1, Math.ceil(nTiles / drawingFrames))
+  }
+
   // --- Drawing canvas (starts white) ---
   const drawCanvas = document.createElement('canvas')
   drawCanvas.width = imgW; drawCanvas.height = imgH
@@ -305,7 +328,7 @@ export async function generateSketchFrames(
     selIdx = argMin(dists, nTiles)
     counter++
 
-    if (counter % settings.objectSkipRate === 0) {
+    if (counter % effectiveSkipRate === 0) {
       // Capture frame — optionally composite hand
       let frame: ImageData
       if (settings.drawHand && handData && handMaskData) {

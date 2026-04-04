@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { generateSketchFrames, DEFAULT_SETTINGS } from './sketch/processor'
+import { generateSketchFrames, DEFAULT_SETTINGS, settingsFromDuration } from './sketch/processor'
 import { SketchEncoder, stitchCachedClips, encodeFramesToMp4 } from './sketch/encoder'
 import type { SketchSettings } from './sketch/processor'
 import type { ClipCache } from './sketch/encoder'
@@ -24,7 +24,12 @@ export default function Home() {
   const [progress, setProgress] = useState(0)
   const [currentClipIdx, setCurrentClipIdx] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [settings, setSettings] = useState<SketchSettings>(DEFAULT_SETTINGS)
+  const [mode, setMode] = useState<'simple' | 'advanced'>('simple')
+  const [simpleDuration, setSimpleDuration] = useState(10)
+  const [settings, setSettings] = useState<SketchSettings>(() => ({
+    ...DEFAULT_SETTINGS,
+    ...settingsFromDuration(10),
+  }))
   const dropRef = useRef<HTMLDivElement>(null)
   const dragIndex = useRef<number | null>(null)
 
@@ -196,6 +201,27 @@ export default function Home() {
     setSettings(s => ({ ...s, [key]: value }))
   }
 
+  function switchMode(newMode: 'simple' | 'advanced') {
+    setMode(newMode)
+    setClips(prev => prev.map(c => ({ ...c, cache: undefined, blob: undefined })))
+    setVideoUrl(null)
+    setStatus('idle')
+    if (newMode === 'simple') {
+      setSettings(s => ({ ...s, ...settingsFromDuration(simpleDuration) }))
+    } else {
+      // Clear targetDurationSec so advanced mode uses objectSkipRate directly
+      setSettings(s => ({ ...s, targetDurationSec: undefined }))
+    }
+  }
+
+  function changeSimpleDuration(dur: number) {
+    setSimpleDuration(dur)
+    setClips(prev => prev.map(c => ({ ...c, cache: undefined, blob: undefined })))
+    setVideoUrl(null)
+    setStatus('idle')
+    setSettings(s => ({ ...s, ...settingsFromDuration(dur) }))
+  }
+
   const activeClip = clips[activeIndex]
   const isProcessing = status === 'generating' || status === 'encoding'
   const allRendered = clips.length > 0 && clips.every(c => c.cache)
@@ -242,31 +268,55 @@ export default function Home() {
           <div className="tool-left">
             <h3 className="section-heading">Settings</h3>
 
+            <div className="mode-pill">
+              <button
+                className={`mode-pill-btn${mode === 'simple' ? ' active' : ''}`}
+                onClick={() => switchMode('simple')}
+              >Simple</button>
+              <button
+                className={`mode-pill-btn${mode === 'advanced' ? ' active' : ''}`}
+                onClick={() => switchMode('advanced')}
+              >Advanced</button>
+            </div>
+
             <div className="settings-list">
-              <label className="field">
-                <span>Split length</span>
-                <small>Grid size — smaller = finer detail, slower</small>
-                <input type="number" min={5} max={40} step={5} value={settings.splitLen}
-                  onChange={e => setSetting('splitLen', Number(e.target.value))} />
-              </label>
-              <label className="field">
-                <span>Frame rate</span>
-                <small>Output video FPS</small>
-                <input type="number" min={10} max={60} step={5} value={settings.frameRate}
-                  onChange={e => setSetting('frameRate', Number(e.target.value))} />
-              </label>
-              <label className="field">
-                <span>Object skip rate</span>
-                <small>Frames skipped per drawn stroke</small>
-                <input type="number" min={1} max={20} value={settings.objectSkipRate}
-                  onChange={e => setSetting('objectSkipRate', Number(e.target.value))} />
-              </label>
-              <label className="field">
-                <span>End image duration (s)</span>
-                <small>How long the final image is shown</small>
-                <input type="number" min={1} max={10} value={settings.mainImgDuration}
-                  onChange={e => setSetting('mainImgDuration', Number(e.target.value))} />
-              </label>
+              {mode === 'simple' && (
+                <label className="field">
+                  <span>Duration per image (s)</span>
+                  <small>Approximate length of each clip's animation</small>
+                  <input type="number" min={3} max={120} step={1} value={simpleDuration}
+                    onChange={e => changeSimpleDuration(Number(e.target.value))} />
+                </label>
+              )}
+
+              {mode === 'advanced' && (
+                <>
+                  <label className="field">
+                    <span>Split length</span>
+                    <small>Grid size — smaller = finer detail, slower</small>
+                    <input type="number" min={5} max={40} step={5} value={settings.splitLen}
+                      onChange={e => setSetting('splitLen', Number(e.target.value))} />
+                  </label>
+                  <label className="field">
+                    <span>Frame rate</span>
+                    <small>Output video FPS</small>
+                    <input type="number" min={10} max={60} step={5} value={settings.frameRate}
+                      onChange={e => setSetting('frameRate', Number(e.target.value))} />
+                  </label>
+                  <label className="field">
+                    <span>Object skip rate</span>
+                    <small>Frames skipped per drawn stroke</small>
+                    <input type="number" min={1} max={60} value={settings.objectSkipRate}
+                      onChange={e => setSetting('objectSkipRate', Number(e.target.value))} />
+                  </label>
+                  <label className="field">
+                    <span>End image duration (s)</span>
+                    <small>How long the final image is shown</small>
+                    <input type="number" min={1} max={10} value={settings.mainImgDuration}
+                      onChange={e => setSetting('mainImgDuration', Number(e.target.value))} />
+                  </label>
+                </>
+              )}
 
               <div className="toggle-group">
                 <label className="toggle">
@@ -275,20 +325,24 @@ export default function Home() {
                   <span>Draw with colour</span>
                 </label>
                 <label className="toggle">
-                  <input type="checkbox" checked={settings.normalizeBg}
-                    onChange={e => setSetting('normalizeBg', e.target.checked)} />
-                  <span>Normalise background to white</span>
-                </label>
-                <label className="toggle">
                   <input type="checkbox" checked={settings.endColor}
                     onChange={e => setSetting('endColor', e.target.checked)} />
                   <span>End with colour image</span>
                 </label>
-                <label className="toggle">
-                  <input type="checkbox" checked={settings.max1080p}
-                    onChange={e => setSetting('max1080p', e.target.checked)} />
-                  <span>Cap at 1080p</span>
-                </label>
+                {mode === 'advanced' && (
+                  <>
+                    <label className="toggle">
+                      <input type="checkbox" checked={settings.normalizeBg}
+                        onChange={e => setSetting('normalizeBg', e.target.checked)} />
+                      <span>Normalise background to white</span>
+                    </label>
+                    <label className="toggle">
+                      <input type="checkbox" checked={settings.max1080p}
+                        onChange={e => setSetting('max1080p', e.target.checked)} />
+                      <span>Cap at 1080p</span>
+                    </label>
+                  </>
+                )}
                 <label className="toggle">
                   <input type="checkbox" checked={settings.drawHand}
                     onChange={e => setSetting('drawHand', e.target.checked)} />

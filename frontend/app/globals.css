@@ -410,6 +410,34 @@ body {
 
 .timeline-add:hover { border-color: #f3791b; color: #f3791b; }
 
+/* ---- Mode pill ---- */
+.mode-pill {
+  display: flex;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.mode-pill-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mode-pill-btn:hover { color: #ccc; }
+.mode-pill-btn.active { background: #f3791b; color: #fff; }
+
 /* ---- Hand options ---- */
 .hand-options-section {
   display: flex;
