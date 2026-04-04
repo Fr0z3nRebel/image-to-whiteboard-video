@@ -2,8 +2,9 @@
 
 import { useRef, useState } from 'react'
 import { generateSketchFrames, DEFAULT_SETTINGS } from './sketch/processor'
-import { encodeFramesToMp4 } from './sketch/encoder'
+import { SketchEncoder, stitchCachedClips, encodeFramesToMp4 } from './sketch/encoder'
 import type { SketchSettings } from './sketch/processor'
+import type { ClipCache } from './sketch/encoder'
 
 type Status = 'idle' | 'generating' | 'encoding' | 'done' | 'error'
 
@@ -11,8 +12,8 @@ interface ClipItem {
   id: string
   file: File
   previewUrl: string
-  frames?: ImageData[]
-  frameSize?: { w: number; h: number }
+  cache?: ClipCache  // compressed H.264 chunks — much smaller than raw ImageData[]
+  blob?: Blob        // per-clip MP4, used for single-clip output or fast re-stitch
 }
 
 export default function Home() {
@@ -49,7 +50,7 @@ export default function Home() {
     setClips(prev => {
       const next = prev.filter((_, i) => i !== idx)
       setActiveIndex(i => Math.min(i, Math.max(0, next.length - 1)))
-      if (next.length > 0 && next.every(c => c.frames) && status !== 'generating' && status !== 'encoding') {
+      if (next.length > 0 && next.every(c => c.cache) && status !== 'generating' && status !== 'encoding') {
         encodeAll(next)
       }
       return next
@@ -86,24 +87,31 @@ export default function Home() {
 
   function onDragEnd() {
     dragIndex.current = null
-    if (clips.every(c => c.frames) && clips.length > 1 && status !== 'generating' && status !== 'encoding') {
+    if (clips.every(c => c.cache) && clips.length > 1 && status !== 'generating' && status !== 'encoding') {
       encodeAll(clips)
     }
   }
 
   async function encodeAll(clipsToEncode: ClipItem[]) {
+    if (typeof VideoEncoder === 'undefined') {
+      // Safari: can't stitch cached chunks without WebCodecs — skip, user can re-generate
+      setStatus('idle')
+      setVideoUrl(null)
+      return
+    }
     setStatus('encoding')
     setProgress(0)
-    const allFrames: ImageData[] = []
-    let imgW = 0, imgH = 0
-    for (const clip of clipsToEncode) {
-      if (!clip.frames) continue
-      if (allFrames.length === 0 && clip.frameSize) { imgW = clip.frameSize.w; imgH = clip.frameSize.h }
-      allFrames.push(...clip.frames)
-    }
     try {
-      const blob = await encodeFramesToMp4(allFrames, settings.frameRate, imgW, imgH,
-        (pct) => setProgress(pct))
+      let blob: Blob
+      if (clipsToEncode.length === 1 && clipsToEncode[0].blob) {
+        blob = clipsToEncode[0].blob
+      } else {
+        blob = await stitchCachedClips(
+          clipsToEncode.map(c => c.cache!),
+          settings.frameRate,
+          (pct) => setProgress(pct),
+        )
+      }
       setVideoUrl(URL.createObjectURL(blob))
       setStatus('done')
     } catch (e: unknown) {
@@ -120,27 +128,58 @@ export default function Home() {
     setError(null)
     setVideoUrl(null)
 
+    // Safari / no-WebCodecs fallback: collect all frames and use MediaRecorder
+    if (typeof VideoEncoder === 'undefined') {
+      try {
+        const allFrames: ImageData[] = []
+        let imgW = 0, imgH = 0
+        for (let i = 0; i < clips.length; i++) {
+          setCurrentClipIdx(i)
+          await generateSketchFrames(clips[i].file, settings, {
+            onFrame: (frame) => {
+              if (allFrames.length === 0) { imgW = frame.width; imgH = frame.height }
+              allFrames.push(frame)
+            },
+            onProgress: (pct) => setProgress(Math.round((i / clips.length) * 100 + pct / clips.length)),
+          })
+        }
+        setStatus('encoding'); setProgress(0)
+        const blob = await encodeFramesToMp4(allFrames, settings.frameRate, imgW, imgH, (pct) => setProgress(pct))
+        setVideoUrl(URL.createObjectURL(blob))
+        setStatus('done')
+      } catch (e: unknown) {
+        setStatus('error')
+        setError(e instanceof Error ? e.message : 'Unknown error')
+      }
+      return
+    }
+
+    // WebCodecs path: stream frames directly into per-clip encoder — no ImageData[] buffering
     try {
-      // Snapshot clips so we can mutate and write back cached frames
       let current = [...clips]
 
       for (let i = 0; i < current.length; i++) {
-        if (current[i].frames) continue  // already rendered — skip
+        if (current[i].cache) continue  // already encoded — skip
         setCurrentClipIdx(i)
-        const frames: ImageData[] = []
-        let w = 0, h = 0
+        let enc: SketchEncoder | null = null
         await generateSketchFrames(current[i].file, settings, {
           onFrame: (frame) => {
-            if (frames.length === 0) { w = frame.width; h = frame.height }
-            frames.push(frame)
+            // Lazily init encoder on first frame (dimensions only known here)
+            if (!enc) enc = new SketchEncoder(frame.width, frame.height, settings.frameRate)
+            enc.addFrame(frame)
+            // frame is immediately encoded and can be GC'd — no accumulation
           },
           onProgress: (pct) => {
             setProgress(Math.round((i / current.length) * 100 + pct / current.length))
           },
         })
-        current[i] = { ...current[i], frames, frameSize: { w, h } }
-        setClips([...current])  // persist cached frames to state
+        if (enc != null) {
+          // Cast required: TS 5.5+ doesn't narrow lets mutated inside closures
+          const { blob, cache } = await (enc as unknown as SketchEncoder).finish()
+          current[i] = { ...current[i], cache, blob }
+        }
       }
+      setClips(current)  // persist caches
 
       await encodeAll(current)
     } catch (e: unknown) {
@@ -150,8 +189,8 @@ export default function Home() {
   }
 
   function setSetting<K extends keyof SketchSettings>(key: K, value: SketchSettings[K]) {
-    // Clear cached frames — stale after any settings change
-    setClips(prev => prev.map(c => ({ ...c, frames: undefined, frameSize: undefined })))
+    // Clear cached chunks — stale after any settings change
+    setClips(prev => prev.map(c => ({ ...c, cache: undefined, blob: undefined })))
     setVideoUrl(null)
     setStatus('idle')
     setSettings(s => ({ ...s, [key]: value }))
@@ -159,8 +198,8 @@ export default function Home() {
 
   const activeClip = clips[activeIndex]
   const isProcessing = status === 'generating' || status === 'encoding'
-  const allRendered = clips.length > 0 && clips.every(c => c.frames)
-  const pendingCount = clips.filter(c => !c.frames).length
+  const allRendered = clips.length > 0 && clips.every(c => c.cache)
+  const pendingCount = clips.filter(c => !c.cache).length
 
   const generateLabel = (() => {
     if (status === 'generating') {
@@ -323,7 +362,7 @@ export default function Home() {
                   'timeline-item',
                   idx === activeIndex ? 'active' : '',
                   isProcessing && idx === currentClipIdx ? 'processing' : '',
-                  clip.frames ? 'rendered' : '',
+                  clip.cache ? 'rendered' : '',
                 ].filter(Boolean).join(' ')}
                 draggable
                 onDragStart={() => onDragStart(idx)}
