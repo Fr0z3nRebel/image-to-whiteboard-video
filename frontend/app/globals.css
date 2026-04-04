@@ -449,8 +449,14 @@ body {
 
 .hand-tone-picker {
   display: flex;
+  flex-direction: column;
   gap: 0.4rem;
   margin-top: 0.25rem;
+}
+
+.hand-tone-row {
+  display: flex;
+  gap: 0.4rem;
 }
 
 .hand-tone-opt {

@@ -10,7 +10,7 @@ export interface SketchSettings {
   mainImgDuration: number
   endColor: boolean
   drawHand: boolean
-  handTone: 'light' | 'mid' | 'dark'
+  handTone: 'light' | 'mid' | 'dark' | 'light-pencil' | 'mid-pencil' | 'dark-pencil'
   handScale: number
   max1080p: boolean
   drawColor: boolean
@@ -19,6 +19,8 @@ export interface SketchSettings {
   /** When set, objectSkipRate is ignored and computed from actual tile count to hit this duration. */
   targetDurationSec?: number
 }
+
+export type SimpleQuality = 'low' | 'medium' | 'high'
 
 export const DEFAULT_SETTINGS: SketchSettings = {
   splitLen: 1,
@@ -35,16 +37,36 @@ export const DEFAULT_SETTINGS: SketchSettings = {
   colorStrokeSize: 4,
 }
 
+function splitLenFromQuality(quality: SimpleQuality): number {
+  switch (quality) {
+    case 'low':
+      return 3
+    case 'medium':
+      return 2
+    case 'high':
+    default:
+      return 1
+  }
+}
+
 /**
  * Return settings for simple mode. The processor will compute objectSkipRate
  * at runtime from the actual tile count so the clip hits targetDurationSec.
  */
 export function settingsFromDuration(
   durationSec: number,
-): Pick<SketchSettings, 'splitLen' | 'frameRate' | 'objectSkipRate' | 'mainImgDuration' | 'targetDurationSec'> {
+  quality: SimpleQuality = 'high',
+): Pick<SketchSettings, 'splitLen' | 'frameRate' | 'objectSkipRate' | 'mainImgDuration' | 'colorStrokeSize' | 'targetDurationSec'> {
   const frameRate = 30
   const mainImgDuration = Math.max(1, Math.min(Math.round(durationSec * 0.15), 5))
-  return { frameRate, mainImgDuration, splitLen: 1, objectSkipRate: 600, targetDurationSec: durationSec }
+  return {
+    frameRate,
+    mainImgDuration,
+    splitLen: splitLenFromQuality(quality),
+    objectSkipRate: 600,
+    colorStrokeSize: 4,
+    targetDurationSec: durationSec,
+  }
 }
 
 // Standard resolutions the backend snaps to
@@ -227,9 +249,12 @@ export async function generateSketchFrames(
       light: '/light-tone-hand-marker.png',
       mid: '/mid-tone-hand-marker.png',
       dark: '/dark-tone-hand-marker.png',
+      'light-pencil': '/light-tone-hand-pencil.png',
+      'mid-pencil': '/mid-tone-hand-pencil.png',
+      'dark-pencil': '/dark-tone-hand-pencil.png',
     }
     const handUrl = toneMap[settings.handTone] ?? '/mid-tone-hand-marker.png'
-    const maskUrl = '/hand-marker-mask.png'
+    const maskUrl = settings.handTone.includes('pencil') ? '/hand-pencil-mask.png' : '/hand-marker-mask.png'
 
     // Sample mask at reference size to compute the hand bounding box
     const refSize = 200

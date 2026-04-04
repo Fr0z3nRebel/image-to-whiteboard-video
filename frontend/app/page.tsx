@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { generateSketchFrames, DEFAULT_SETTINGS, settingsFromDuration } from './sketch/processor'
 import { SketchEncoder, stitchCachedClips, encodeFramesToMp4 } from './sketch/encoder'
 import { recordGenerationStat } from './debug-console'
-import type { SketchSettings } from './sketch/processor'
+import type { SimpleQuality, SketchSettings } from './sketch/processor'
 import type { ClipCache } from './sketch/encoder'
 
 type Status = 'idle' | 'generating' | 'encoding' | 'done' | 'error'
@@ -27,9 +27,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<'simple' | 'advanced'>('simple')
   const [simpleDuration, setSimpleDuration] = useState(6)
+  const [simpleQuality, setSimpleQuality] = useState<SimpleQuality>('medium')
   const [settings, setSettings] = useState<SketchSettings>(() => ({
     ...DEFAULT_SETTINGS,
-    ...settingsFromDuration(6),
+    ...settingsFromDuration(6, 'medium'),
   }))
   const dropRef = useRef<HTMLDivElement>(null)
   const dragIndex = useRef<number | null>(null)
@@ -211,7 +212,7 @@ export default function Home() {
     setVideoUrl(null)
     setStatus('idle')
     if (newMode === 'simple') {
-      setSettings(s => ({ ...s, ...settingsFromDuration(simpleDuration) }))
+      setSettings(s => ({ ...s, ...settingsFromDuration(simpleDuration, simpleQuality) }))
     } else {
       // Clear targetDurationSec so advanced mode uses objectSkipRate directly
       setSettings(s => ({ ...s, targetDurationSec: undefined }))
@@ -223,13 +224,31 @@ export default function Home() {
     setClips(prev => prev.map(c => ({ ...c, cache: undefined, blob: undefined })))
     setVideoUrl(null)
     setStatus('idle')
-    setSettings(s => ({ ...s, ...settingsFromDuration(dur) }))
+    setSettings(s => ({ ...s, ...settingsFromDuration(dur, simpleQuality) }))
+  }
+
+  function changeSimpleQuality(quality: SimpleQuality) {
+    setSimpleQuality(quality)
+    setClips(prev => prev.map(c => ({ ...c, cache: undefined, blob: undefined })))
+    setVideoUrl(null)
+    setStatus('idle')
+    setSettings(s => ({ ...s, ...settingsFromDuration(simpleDuration, quality) }))
   }
 
   const activeClip = clips[activeIndex]
   const isProcessing = status === 'generating' || status === 'encoding'
   const allRendered = clips.length > 0 && clips.every(c => c.cache)
   const pendingCount = clips.filter(c => !c.cache).length
+  const markerHandTones = [
+    { value: 'light', label: 'Light marker', image: '/light-tone-hand-marker.png' },
+    { value: 'mid', label: 'Mid marker', image: '/mid-tone-hand-marker.png' },
+    { value: 'dark', label: 'Dark marker', image: '/dark-tone-hand-marker.png' },
+  ] as const
+  const pencilHandTones = [
+    { value: 'light-pencil', label: 'Light pencil', image: '/light-tone-hand-pencil.png' },
+    { value: 'mid-pencil', label: 'Mid pencil', image: '/mid-tone-hand-pencil.png' },
+    { value: 'dark-pencil', label: 'Dark pencil', image: '/dark-tone-hand-pencil.png' },
+  ] as const
 
   const generateLabel = (() => {
     if (status === 'generating') {
@@ -285,12 +304,30 @@ export default function Home() {
 
             <div className="settings-list">
               {mode === 'simple' && (
-                <label className="field">
-                  <span>Duration per image (s)</span>
-                  <small>Approximate length of each clip's animation</small>
-                  <input type="number" min={3} max={120} step={1} value={simpleDuration}
-                    onChange={e => changeSimpleDuration(Number(e.target.value))} />
-                </label>
+                <>
+                  <label className="field">
+                    <span>Duration per image (s)</span>
+                    <small>Approximate length of each clip's animation</small>
+                    <input type="number" min={3} max={120} step={1} value={simpleDuration}
+                      onChange={e => changeSimpleDuration(Number(e.target.value))} />
+                  </label>
+                  <div className="field">
+                    <span>Quality</span>
+                    <small>Higher quality uses finer line detail and takes longer</small>
+                    <div className="mode-pill">
+                      {(['low', 'medium', 'high'] as const).map((quality) => (
+                        <button
+                          key={quality}
+                          className={`mode-pill-btn${simpleQuality === quality ? ' active' : ''}`}
+                          onClick={() => changeSimpleQuality(quality)}
+                          type="button"
+                        >
+                          {quality[0].toUpperCase() + quality.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
 
               {mode === 'advanced' && (
@@ -328,7 +365,7 @@ export default function Home() {
                     onChange={e => setSetting('drawColor', e.target.checked)} />
                   <span>Color the image</span>
                 </label>
-                {settings.drawColor && (
+                {mode === 'advanced' && settings.drawColor && (
                   <label className="field" style={{ paddingLeft: '1.5rem' }}>
                     <span>Colour stroke size <span className="field-value">{settings.colorStrokeSize}×</span></span>
                     <input type="range" min={1} max={20} step={1} value={settings.colorStrokeSize}
@@ -367,15 +404,19 @@ export default function Home() {
                   <div className="field">
                     <span>Hand tone</span>
                     <div className="hand-tone-picker">
-                      {(['light', 'mid', 'dark'] as const).map(tone => (
-                        <button
-                          key={tone}
-                          className={`hand-tone-opt${settings.handTone === tone ? ' selected' : ''}`}
-                          onClick={() => setSetting('handTone', tone)}
-                          title={`${tone} tone`}
-                        >
-                          <img src={`/${tone}-tone-hand-marker.png`} alt={`${tone} tone`} />
-                        </button>
+                      {[markerHandTones, pencilHandTones].map((toneRow, rowIdx) => (
+                        <div key={rowIdx} className="hand-tone-row">
+                          {toneRow.map((tone) => (
+                            <button
+                              key={tone.value}
+                              className={`hand-tone-opt${settings.handTone === tone.value ? ' selected' : ''}`}
+                              onClick={() => setSetting('handTone', tone.value)}
+                              title={tone.label}
+                            >
+                              <img src={tone.image} alt={tone.label} />
+                            </button>
+                          ))}
+                        </div>
                       ))}
                     </div>
                   </div>
