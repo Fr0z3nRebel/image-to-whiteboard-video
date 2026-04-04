@@ -25,10 +25,10 @@ export default function Home() {
   const [currentClipIdx, setCurrentClipIdx] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<'simple' | 'advanced'>('simple')
-  const [simpleDuration, setSimpleDuration] = useState(10)
+  const [simpleDuration, setSimpleDuration] = useState(6)
   const [settings, setSettings] = useState<SketchSettings>(() => ({
     ...DEFAULT_SETTINGS,
-    ...settingsFromDuration(10),
+    ...settingsFromDuration(6),
   }))
   const dropRef = useRef<HTMLDivElement>(null)
   const dragIndex = useRef<number | null>(null)
@@ -294,7 +294,7 @@ export default function Home() {
                   <label className="field">
                     <span>Split length</span>
                     <small>Grid size — smaller = finer detail, slower</small>
-                    <input type="number" min={5} max={40} step={5} value={settings.splitLen}
+                    <input type="number" min={1} max={40} step={1} value={settings.splitLen}
                       onChange={e => setSetting('splitLen', Number(e.target.value))} />
                   </label>
                   <label className="field">
@@ -306,7 +306,7 @@ export default function Home() {
                   <label className="field">
                     <span>Object skip rate</span>
                     <small>Frames skipped per drawn stroke</small>
-                    <input type="number" min={1} max={60} value={settings.objectSkipRate}
+                    <input type="number" min={1} max={10000} value={settings.objectSkipRate}
                       onChange={e => setSetting('objectSkipRate', Number(e.target.value))} />
                   </label>
                   <label className="field">

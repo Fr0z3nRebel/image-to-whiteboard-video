@@ -20,9 +20,9 @@ export interface SketchSettings {
 }
 
 export const DEFAULT_SETTINGS: SketchSettings = {
-  splitLen: 10,
+  splitLen: 1,
   frameRate: 30,
-  objectSkipRate: 16,
+  objectSkipRate: 600,
   mainImgDuration: 2,
   endColor: true,
   drawHand: true,
@@ -42,7 +42,7 @@ export function settingsFromDuration(
 ): Pick<SketchSettings, 'splitLen' | 'frameRate' | 'objectSkipRate' | 'mainImgDuration' | 'targetDurationSec'> {
   const frameRate = 30
   const mainImgDuration = Math.max(1, Math.min(Math.round(durationSec * 0.15), 5))
-  return { frameRate, mainImgDuration, splitLen: 10, objectSkipRate: 16, targetDurationSec: durationSec }
+  return { frameRate, mainImgDuration, splitLen: 1, objectSkipRate: 600, targetDurationSec: durationSec }
 }
 
 // Standard resolutions the backend snaps to
