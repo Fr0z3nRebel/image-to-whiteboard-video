@@ -543,6 +543,114 @@ body {
 
 .footer-social a:hover { color: #f3791b; }
 
+/* ---- Debug Console ---- */
+.debug-console-btn {
+  background: none;
+  border: 1px solid #3a3a3a;
+  color: #888;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.debug-console-btn:hover { border-color: #f3791b; color: #f3791b; }
+
+.debug-console-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.debug-console-modal {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  width: 360px;
+  max-width: calc(100vw - 2rem);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.debug-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #ccc;
+}
+
+.debug-console-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s;
+}
+.debug-console-close:hover { color: #fafafa; }
+
+.debug-console-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.debug-no-data {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #666;
+  text-align: center;
+  padding: 0.5rem 0;
+}
+
+.debug-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.debug-table td { padding: 0.3rem 0.25rem; }
+.debug-table td:first-child { color: #999; }
+.debug-table td:last-child { color: #fafafa; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+.debug-history-label {
+  margin: 0;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #555;
+}
+
+.debug-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.debug-history-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+.debug-history-num { color: #555; min-width: 2rem; }
+.debug-history-row span:nth-child(2) { color: #fafafa; font-weight: 600; flex: 1; }
+.debug-history-time { color: #666; }
+
 /* ---- Responsive ---- */
 @media (max-width: 720px) {
   html, body { overflow: auto; }

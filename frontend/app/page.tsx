@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { generateSketchFrames, DEFAULT_SETTINGS, settingsFromDuration } from './sketch/processor'
 import { SketchEncoder, stitchCachedClips, encodeFramesToMp4 } from './sketch/encoder'
+import { recordGenerationStat } from './debug-console'
 import type { SketchSettings } from './sketch/processor'
 import type { ClipCache } from './sketch/encoder'
 
@@ -127,6 +128,7 @@ export default function Home() {
 
   async function generate() {
     if (clips.length === 0) return
+    const genStart = performance.now()
     setStatus('generating')
     setProgress(0)
     setCurrentClipIdx(0)
@@ -152,6 +154,7 @@ export default function Home() {
         const blob = await encodeFramesToMp4(allFrames, settings.frameRate, imgW, imgH, (pct) => setProgress(pct))
         setVideoUrl(URL.createObjectURL(blob))
         setStatus('done')
+        recordGenerationStat(performance.now() - genStart)
       } catch (e: unknown) {
         setStatus('error')
         setError(e instanceof Error ? e.message : 'Unknown error')
@@ -187,6 +190,7 @@ export default function Home() {
       setClips(current)  // persist caches
 
       await encodeAll(current)
+      recordGenerationStat(performance.now() - genStart)
     } catch (e: unknown) {
       setStatus('error')
       setError(e instanceof Error ? e.message : 'Unknown error')

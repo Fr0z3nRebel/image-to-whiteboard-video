@@ -1,10 +1,13 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import DebugConsole from './debug-console'
 
 export const metadata: Metadata = {
   title: 'Ready Sketch Go',
   description: 'Upload an image and generate a whiteboard-style drawing animation',
 }
+
+const debugMode = process.env.DEBUG_MODE === 'true'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="site-footer-inner">
             <p className="footer-copy">© 2026 Lefty Studios LLC. All rights reserved.</p>
             <div className="footer-links">
+              {debugMode && <DebugConsole />}
               <a href="https://image-toolbox.leftystudios.com/privacy-policy" target="_blank" rel="noreferrer">Privacy Policy</a>
               <a href="https://image-toolbox.leftystudios.com/terms" target="_blank" rel="noreferrer">Terms of Use</a>
             </div>
