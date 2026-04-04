@@ -327,6 +327,15 @@ body {
 
 .timeline-item:hover { border-color: #666; }
 .timeline-item.active { border-color: #f3791b; }
+.timeline-item.rendered::after {
+  content: '✓';
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: 0.6rem;
+  color: #4caf50;
+  line-height: 1;
+}
 .timeline-item.processing {
   border-color: #f3791b;
   box-shadow: 0 0 0 2px rgba(243, 121, 27, 0.35);

@@ -11,6 +11,8 @@ interface ClipItem {
   id: string
   file: File
   previewUrl: string
+  frames?: ImageData[]
+  frameSize?: { w: number; h: number }
 }
 
 export default function Home() {
@@ -47,6 +49,9 @@ export default function Home() {
     setClips(prev => {
       const next = prev.filter((_, i) => i !== idx)
       setActiveIndex(i => Math.min(i, Math.max(0, next.length - 1)))
+      if (next.length > 0 && next.every(c => c.frames) && status !== 'generating' && status !== 'encoding') {
+        encodeAll(next)
+      }
       return next
     })
   }
@@ -81,6 +86,30 @@ export default function Home() {
 
   function onDragEnd() {
     dragIndex.current = null
+    if (clips.every(c => c.frames) && clips.length > 1 && status !== 'generating' && status !== 'encoding') {
+      encodeAll(clips)
+    }
+  }
+
+  async function encodeAll(clipsToEncode: ClipItem[]) {
+    setStatus('encoding')
+    setProgress(0)
+    const allFrames: ImageData[] = []
+    let imgW = 0, imgH = 0
+    for (const clip of clipsToEncode) {
+      if (!clip.frames) continue
+      if (allFrames.length === 0 && clip.frameSize) { imgW = clip.frameSize.w; imgH = clip.frameSize.h }
+      allFrames.push(...clip.frames)
+    }
+    try {
+      const blob = await encodeFramesToMp4(allFrames, settings.frameRate, imgW, imgH,
+        (pct) => setProgress(pct))
+      setVideoUrl(URL.createObjectURL(blob))
+      setStatus('done')
+    } catch (e: unknown) {
+      setStatus('error')
+      setError(e instanceof Error ? e.message : 'Unknown error')
+    }
   }
 
   async function generate() {
@@ -92,30 +121,28 @@ export default function Home() {
     setVideoUrl(null)
 
     try {
-      const allFrames: ImageData[] = []
-      let imgW = 0, imgH = 0
+      // Snapshot clips so we can mutate and write back cached frames
+      let current = [...clips]
 
-      for (let i = 0; i < clips.length; i++) {
+      for (let i = 0; i < current.length; i++) {
+        if (current[i].frames) continue  // already rendered — skip
         setCurrentClipIdx(i)
-        await generateSketchFrames(clips[i].file, settings, {
+        const frames: ImageData[] = []
+        let w = 0, h = 0
+        await generateSketchFrames(current[i].file, settings, {
           onFrame: (frame) => {
-            if (allFrames.length === 0) { imgW = frame.width; imgH = frame.height }
-            allFrames.push(frame)
+            if (frames.length === 0) { w = frame.width; h = frame.height }
+            frames.push(frame)
           },
           onProgress: (pct) => {
-            setProgress(Math.round((i / clips.length) * 100 + pct / clips.length))
+            setProgress(Math.round((i / current.length) * 100 + pct / current.length))
           },
         })
+        current[i] = { ...current[i], frames, frameSize: { w, h } }
+        setClips([...current])  // persist cached frames to state
       }
 
-      setStatus('encoding')
-      setProgress(0)
-
-      const blob = await encodeFramesToMp4(allFrames, settings.frameRate, imgW, imgH,
-        (pct) => setProgress(pct))
-
-      setVideoUrl(URL.createObjectURL(blob))
-      setStatus('done')
+      await encodeAll(current)
     } catch (e: unknown) {
       setStatus('error')
       setError(e instanceof Error ? e.message : 'Unknown error')
@@ -123,11 +150,17 @@ export default function Home() {
   }
 
   function setSetting<K extends keyof SketchSettings>(key: K, value: SketchSettings[K]) {
+    // Clear cached frames — stale after any settings change
+    setClips(prev => prev.map(c => ({ ...c, frames: undefined, frameSize: undefined })))
+    setVideoUrl(null)
+    setStatus('idle')
     setSettings(s => ({ ...s, [key]: value }))
   }
 
   const activeClip = clips[activeIndex]
   const isProcessing = status === 'generating' || status === 'encoding'
+  const allRendered = clips.length > 0 && clips.every(c => c.frames)
+  const pendingCount = clips.filter(c => !c.frames).length
 
   const generateLabel = (() => {
     if (status === 'generating') {
@@ -135,7 +168,9 @@ export default function Home() {
         ? `⏳ Scene ${currentClipIdx + 1}/${clips.length} · ${progress}%`
         : `⏳ Drawing… ${progress}%`
     }
-    if (status === 'encoding') return `⏳ Encoding… ${progress}%`
+    if (status === 'encoding') return `⏳ Stitching… ${progress}%`
+    if (allRendered) return clips.length > 1 ? `▶ Re-stitch ${clips.length} Scenes` : '▶ Re-generate'
+    if (pendingCount < clips.length) return `▶ Render ${pendingCount} New + Stitch All`
     if (clips.length > 1) return `▶ Generate ${clips.length} Scenes`
     return '▶ Generate Animation'
   })()
@@ -288,6 +323,7 @@ export default function Home() {
                   'timeline-item',
                   idx === activeIndex ? 'active' : '',
                   isProcessing && idx === currentClipIdx ? 'processing' : '',
+                  clip.frames ? 'rendered' : '',
                 ].filter(Boolean).join(' ')}
                 draggable
                 onDragStart={() => onDragStart(idx)}
