@@ -322,8 +322,16 @@ export default function Home() {
                 <label className="toggle">
                   <input type="checkbox" checked={settings.drawColor}
                     onChange={e => setSetting('drawColor', e.target.checked)} />
-                  <span>Draw with colour</span>
+                  <span>Color the image</span>
                 </label>
+                {settings.drawColor && (
+                  <label className="field" style={{ paddingLeft: '1.5rem' }}>
+                    <span>Colour stroke size <span className="field-value">{settings.colorStrokeSize}×</span></span>
+                    <input type="range" min={1} max={20} step={1} value={settings.colorStrokeSize}
+                      className="hand-size-slider"
+                      onChange={e => setSetting('colorStrokeSize', Number(e.target.value))} />
+                  </label>
+                )}
                 <label className="toggle">
                   <input type="checkbox" checked={settings.endColor}
                     onChange={e => setSetting('endColor', e.target.checked)} />

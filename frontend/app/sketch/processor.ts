@@ -15,6 +15,7 @@ export interface SketchSettings {
   max1080p: boolean
   drawColor: boolean
   normalizeBg: boolean
+  colorStrokeSize: number
   /** When set, objectSkipRate is ignored and computed from actual tile count to hit this duration. */
   targetDurationSec?: number
 }
@@ -31,6 +32,7 @@ export const DEFAULT_SETTINGS: SketchSettings = {
   max1080p: true,
   drawColor: true,
   normalizeBg: true,
+  colorStrokeSize: 4,
 }
 
 /**
@@ -272,13 +274,49 @@ export async function generateSketchFrames(
   let nTiles = darkTiles.length / 2
   const pts = new Int32Array(darkTiles) // [r0,c0,r1,c1,...]
 
-  // In simple mode, derive objectSkipRate from actual tile count so the clip
-  // hits the requested duration regardless of image size or content density.
+  const total = darkTiles.length / 2
+
+  // Colour phase uses 4× larger tiles for a bolder, faster colouring-in feel.
+  const colorSplitLen = splitLen * settings.colorStrokeSize
+  const cNV = Math.ceil(imgH / colorSplitLen)
+  const cNH = Math.ceil(imgW / colorSplitLen)
+
+  // Build the colour tile list upfront: all tiles where the source has at least
+  // one non-near-white pixel. Stored as interleaved [row, col, ...].
+  // We do this before computing skip rates so totalColorTiles is accurate.
+  let colorTileList: number[] = []
+  if (settings.drawColor) {
+    const srcPixels = srcCtx.getImageData(0, 0, imgW, imgH).data
+    for (let tv = 0; tv < cNV; tv++) {
+      for (let th = 0; th < cNH; th++) {
+        const x0 = th * colorSplitLen, y0 = tv * colorSplitLen
+        const x1 = Math.min(x0 + colorSplitLen, imgW)
+        const y1 = Math.min(y0 + colorSplitLen, imgH)
+        let hasColor = false
+        outer2: for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const i = (y * imgW + x) * 4
+            const r = srcPixels[i], g = srcPixels[i + 1], b = srcPixels[i + 2]
+            if (r < 230 || g < 230 || b < 230) { hasColor = true; break outer2 }
+          }
+        }
+        if (hasColor) { colorTileList.push(tv); colorTileList.push(th) }
+      }
+    }
+  }
+  const totalColorTiles = colorTileList.length / 2
+  const phases = settings.drawColor ? 2 : 1
   let effectiveSkipRate = settings.objectSkipRate
+  let colorSkipRate = settings.objectSkipRate
   if (settings.targetDurationSec !== undefined) {
     const drawingDuration = Math.max(0.5, settings.targetDurationSec - settings.mainImgDuration)
-    const drawingFrames = Math.max(1, Math.round(drawingDuration * settings.frameRate))
-    effectiveSkipRate = Math.max(1, Math.ceil(nTiles / drawingFrames))
+    const framesPerPhase = Math.max(1, Math.round((drawingDuration / phases) * settings.frameRate))
+    effectiveSkipRate = Math.max(1, Math.ceil(nTiles / framesPerPhase))
+    colorSkipRate = Math.max(1, Math.ceil(totalColorTiles / framesPerPhase))
+  } else if (settings.drawColor) {
+    // Advanced: produce the same number of animated frames for both phases
+    const lineFrames = Math.max(1, Math.ceil(total / effectiveSkipRate))
+    colorSkipRate = Math.max(1, Math.ceil(totalColorTiles / lineFrames))
   }
 
   // --- Drawing canvas (starts white) ---
@@ -288,61 +326,114 @@ export async function generateSketchFrames(
   drawCtx.fillStyle = 'white'
   drawCtx.fillRect(0, 0, imgW, imgH)
 
-  // --- Animation loop ---
-  let selIdx = 0
-  let counter = 0
-  const total = nTiles
-
-  while (nTiles > 1) {
-    const row = pts[selIdx * 2]
-    const col = pts[selIdx * 2 + 1]
+  // Helper: draw the threshold (black lines) tile at (row, col)
+  function drawLineTile(row: number, col: number) {
     const x0 = col * splitLen, y0 = row * splitLen
     const tileW = Math.min(splitLen, imgW - x0)
     const tileH = Math.min(splitLen, imgH - y0)
+    const tileData = drawCtx.getImageData(x0, y0, tileW, tileH)
+    const td = tileData.data
+    for (let ty = 0; ty < tileH; ty++) {
+      for (let tx = 0; tx < tileW; tx++) {
+        const v = thresh[(y0 + ty) * imgW + (x0 + tx)]
+        const i = (ty * tileW + tx) * 4
+        td[i] = td[i + 1] = td[i + 2] = v
+        td[i + 3] = 255
+      }
+    }
+    drawCtx.putImageData(tileData, x0, y0)
+  }
 
-    if (settings.drawColor) {
-      // Blit the colour tile from the source image
-      drawCtx.drawImage(srcCanvas, x0, y0, tileW, tileH, x0, y0, tileW, tileH)
-    } else {
-      // Draw grayscale threshold tile
-      const tileData = drawCtx.getImageData(x0, y0, tileW, tileH)
-      const td = tileData.data
-      for (let ty = 0; ty < tileH; ty++) {
-        for (let tx = 0; tx < tileW; tx++) {
-          const v = thresh[(y0 + ty) * imgW + (x0 + tx)]
-          const i = (ty * tileW + tx) * 4
-          td[i] = td[i + 1] = td[i + 2] = v
-          td[i + 3] = 255
+  // --- Phase 1: draw black lines (always) ---
+  {
+    let curNTiles = nTiles
+    const curPts = pts
+    let selIdx = 0
+    let counter = 0
+
+    while (curNTiles > 1) {
+      const row = curPts[selIdx * 2]
+      const col = curPts[selIdx * 2 + 1]
+
+      drawLineTile(row, col)
+
+      // Remove current tile (swap with last)
+      curPts[selIdx * 2] = curPts[(curNTiles - 1) * 2]
+      curPts[selIdx * 2 + 1] = curPts[(curNTiles - 1) * 2 + 1]
+      curNTiles--
+
+      // Find nearest remaining tile
+      const dists = euclideanDistances(curPts, curNTiles, row, col)
+      selIdx = argMin(dists, curNTiles)
+      counter++
+
+      if (counter % effectiveSkipRate === 0) {
+        let frame: ImageData
+        if (settings.drawHand && handData && handMaskData) {
+          const hx = col * splitLen + Math.floor(Math.min(splitLen, imgW - col * splitLen) / 2)
+          const hy = row * splitLen + Math.floor(Math.min(splitLen, imgH - row * splitLen) / 2)
+          frame = compositeHand(drawCtx, imgW, imgH, hx, hy, handData, handMaskData)
+        } else {
+          frame = drawCtx.getImageData(0, 0, imgW, imgH)
         }
+        onFrame(frame)
       }
-      drawCtx.putImageData(tileData, x0, y0)
-    }
 
-    // Remove current tile (swap with last)
-    pts[selIdx * 2] = pts[(nTiles - 1) * 2]
-    pts[selIdx * 2 + 1] = pts[(nTiles - 1) * 2 + 1]
-    nTiles--
-
-    // Find nearest remaining tile
-    const dists = euclideanDistances(pts, nTiles, row, col)
-    selIdx = argMin(dists, nTiles)
-    counter++
-
-    if (counter % effectiveSkipRate === 0) {
-      // Capture frame — optionally composite hand
-      let frame: ImageData
-      if (settings.drawHand && handData && handMaskData) {
-        const hx = x0 + Math.floor(tileW / 2)
-        const hy = y0 + Math.floor(tileH / 2)
-        frame = compositeHand(drawCtx, imgW, imgH, hx, hy, handData, handMaskData)
-      } else {
-        frame = drawCtx.getImageData(0, 0, imgW, imgH)
+      if (counter % 100 === 0) {
+        onProgress(Math.min(Math.round((counter / total) * (settings.drawColor ? 47 : 95)), settings.drawColor ? 47 : 95))
       }
-      onFrame(frame)
     }
+  }
 
-    if (counter % 100 === 0) {
-      onProgress(Math.min(Math.round((counter / total) * 95), 95))
+  // --- Phase 2: colour fill — nearest-neighbour over non-white tiles ---
+  // Visits only tiles that have actual colour (not near-white), in nearest-
+  // neighbour order starting from the top-left, giving the same organic feel
+  // as the line phase.
+  if (settings.drawColor && colorTileList.length > 0) {
+    let cNTiles = colorTileList.length / 2
+    const cPts = new Int32Array(colorTileList)
+    let cSelIdx = 0
+    let counter = 0
+    // Start nearest-neighbour from tile (0,0) as a neutral anchor
+    let lastRow = 0, lastCol = 0
+
+    while (cNTiles > 0) {
+      const row = cPts[cSelIdx * 2]
+      const col = cPts[cSelIdx * 2 + 1]
+      lastRow = row; lastCol = col
+
+      const x0 = col * colorSplitLen, y0 = row * colorSplitLen
+      const tileW = Math.min(colorSplitLen, imgW - x0)
+      const tileH = Math.min(colorSplitLen, imgH - y0)
+      drawCtx.drawImage(srcCanvas, x0, y0, tileW, tileH, x0, y0, tileW, tileH)
+
+      // Remove current tile (swap with last)
+      cPts[cSelIdx * 2] = cPts[(cNTiles - 1) * 2]
+      cPts[cSelIdx * 2 + 1] = cPts[(cNTiles - 1) * 2 + 1]
+      cNTiles--
+      counter++
+
+      // Find nearest remaining colour tile
+      if (cNTiles > 0) {
+        const dists = euclideanDistances(cPts, cNTiles, lastRow, lastCol)
+        cSelIdx = argMin(dists, cNTiles)
+      }
+
+      if (counter % colorSkipRate === 0) {
+        let frame: ImageData
+        if (settings.drawHand && handData && handMaskData) {
+          const hx = x0 + Math.floor(tileW / 2)
+          const hy = y0 + Math.floor(tileH / 2)
+          frame = compositeHand(drawCtx, imgW, imgH, hx, hy, handData, handMaskData)
+        } else {
+          frame = drawCtx.getImageData(0, 0, imgW, imgH)
+        }
+        onFrame(frame)
+      }
+
+      if (counter % 500 === 0) {
+        onProgress(Math.min(48 + Math.round((counter / totalColorTiles) * 47), 95))
+      }
     }
   }
 
