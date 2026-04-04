@@ -326,6 +326,9 @@ export async function generateSketchFrames(
   drawCtx.fillStyle = 'white'
   drawCtx.fillRect(0, 0, imgW, imgH)
 
+  // Yield to the browser event loop so it stays responsive during long renders.
+  const yieldToEventLoop = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+
   // Helper: draw the threshold (black lines) tile at (row, col)
   function drawLineTile(row: number, col: number) {
     const x0 = col * splitLen, y0 = row * splitLen
@@ -377,6 +380,7 @@ export async function generateSketchFrames(
           frame = drawCtx.getImageData(0, 0, imgW, imgH)
         }
         onFrame(frame)
+        await yieldToEventLoop()
       }
 
       if (counter % 100 === 0) {
@@ -429,6 +433,7 @@ export async function generateSketchFrames(
           frame = drawCtx.getImageData(0, 0, imgW, imgH)
         }
         onFrame(frame)
+        await yieldToEventLoop()
       }
 
       if (counter % 500 === 0) {
